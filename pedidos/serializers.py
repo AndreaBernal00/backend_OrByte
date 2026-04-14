@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from .models import Pedido, PedidoProducto, Producto, EstadoPedido
-
+from django.db import transaction
 
 class PedidoProductoInputSerializer(serializers.Serializer):
     producto_id = serializers.IntegerField()
@@ -24,7 +24,7 @@ class RegistrarPedidoSerializer(serializers.Serializer):
             cliente = Usuario.objects.get(id=value, activo=True)
         except Usuario.DoesNotExist:
             raise serializers.ValidationError('El cliente no existe o no está activo.')
-        if cliente.rol.nombre != 'cliente':
+        if not cliente.rol or cliente.rol.nombre != 'cliente':
             raise serializers.ValidationError('El usuario indicado no tiene rol de cliente.')
         return value
 
@@ -40,7 +40,7 @@ class RegistrarPedidoSerializer(serializers.Serializer):
     def validate(self, data):
         # validar stock de cada producto
         for item in data['productos']:
-            producto = Producto.objects.get(id=item['producto_id'])
+            producto = Producto.objects.get(id=item['producto_id'], activo=True)
             if producto.stock_disponible < item['cantidad']:
                 raise serializers.ValidationError(
                     f'Stock insuficiente para "{producto.nombre}". '
@@ -48,6 +48,7 @@ class RegistrarPedidoSerializer(serializers.Serializer):
                 )
         return data
 
+    @transaction.atomic #para evitar errores de concurrencia y asegurar que el pedido se registre correctamente o no se registre nada en caso de error
     def create(self, validated_data):
         from usuarios.models import Usuario
         request      = self.context['request']
@@ -64,8 +65,16 @@ class RegistrarPedidoSerializer(serializers.Serializer):
 
         total = 0
         for item in validated_data['productos']:
-            producto = Producto.objects.get(id=item['producto_id'])
+            producto = Producto.objects.select_for_update().get(id=item['producto_id'])
             cantidad = item['cantidad']
+
+            #evitar que se cree un pedido di no hay stock suficiente, aunque esto ya se valido antes
+            #sirve para evitar problemas de concurrencia, por ejemplo si dos pedidos intentan comprar el mismo producto al mismo tiempo y solo hay stock para uno de ellos
+            if producto.stock_disponible < cantidad:
+                raise serializers.ValidationError(
+                    f'Stock insuficiente para "{producto.nombre}". '
+                    f'Disponible: {producto.stock_disponible}, solicitado: {cantidad}.'
+                )
 
             PedidoProducto.objects.create(
                 pedido=pedido,

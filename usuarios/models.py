@@ -1,5 +1,5 @@
 from django.db import models
-from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 
 
 class Rol(models.Model):
@@ -24,19 +24,20 @@ class UsuarioManager(BaseUserManager):
         return user
 
     def create_superuser(self, email, nombre, password=None, **extra_fields):
-        extra_fields.setdefault('is_staff', True)
-        extra_fields.setdefault('is_superuser', True)
+        if extra_fields.get('is_staff') is not True:
+            raise ValueError('Superuser debe tener is_staff=True')
+        if extra_fields.get('is_superuser') is not True:
+            raise ValueError('Superuser debe tener is_superuser=True')
         return self.create_user(email, nombre, password, **extra_fields)
 
-
-class Usuario(AbstractBaseUser):
+class Usuario(AbstractBaseUser, PermissionsMixin):
     nombre    = models.CharField(max_length=100)
     email     = models.EmailField(max_length=150, unique=True)
     telefono  = models.CharField(max_length=20, null=True, blank=True)
     rol       = models.ForeignKey(
                     Rol,
                     on_delete=models.PROTECT,
-                    null=True, blank=True,
+                    #null=True, blank=True,
                     db_column='rol_id'
                 )
     activo    = models.BooleanField(default=True)
