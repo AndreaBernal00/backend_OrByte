@@ -114,3 +114,46 @@ class PedidoOutputSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Pedido
         fields = ['id', 'cliente', 'registrado_por', 'estado', 'total', 'creado_en', 'productos']
+
+
+class EditarPedidoSerializer(serializers.Serializer):
+    estado_id = serializers.IntegerField()
+
+    def validate_estado_id(self, value):
+        from .models import EstadoPedido
+        try:
+            EstadoPedido.objects.get(id=value)
+        except EstadoPedido.DoesNotExist:
+            raise serializers.ValidationError('El estado indicado no existe.')
+        return value
+
+    def validate(self, data):
+        pedido      = self.context['pedido']
+        nuevo_estado = EstadoPedido.objects.get(id=data['estado_id'])
+
+        if pedido.estado.nombre in ['Completado', 'Cancelado']:
+            raise serializers.ValidationError(
+                f'No se puede modificar un pedido en estado "{pedido.estado.nombre}".'
+            )
+
+        if nuevo_estado.nombre == 'Cancelado' and pedido.estado.nombre not in ['Registrado', 'En preparación']:
+            raise serializers.ValidationError(
+                'Solo se puede cancelar un pedido en estado "Registrado" o "En preparación".'
+            )
+
+        return data
+
+
+class InformePedidoSerializer(serializers.ModelSerializer):
+    cliente_nombre  = serializers.CharField(source='cliente.nombre')
+    cliente_email   = serializers.CharField(source='cliente.email')
+    registrado_por  = serializers.CharField(source='registrado_por.nombre')
+    estado          = serializers.CharField(source='estado.nombre')
+    productos       = PedidoProductoOutputSerializer(source='pedidoproducto_set', many=True)
+
+    class Meta:
+        model  = Pedido
+        fields = [
+            'id', 'cliente_nombre', 'cliente_email', 'registrado_por',
+            'estado', 'total', 'creado_en', 'actualizado_en', 'productos',
+        ]
